@@ -56,6 +56,7 @@ class MinecraftSpammerApp:
         self.message_vars = [tk.StringVar() for _ in range(4)]
         self.interval_var = tk.DoubleVar(value=2.0)
         self.variance_var = tk.BooleanVar(value=True)
+        self.unique_id_var = tk.BooleanVar(value=True)
         self.messages_sent = 0
         self.log_queue = queue.Queue()
         self.is_running = False
@@ -99,6 +100,7 @@ class MinecraftSpammerApp:
         ttk.Spinbox(ctrl_frame, from_=0.1, to=60.0, increment=0.1, textvariable=self.interval_var, width=6).pack(side="left", padx=5)
         
         ttk.Checkbutton(ctrl_frame, text="±30% Random Variance", variable=self.variance_var).pack(side="left", padx=15)
+        ttk.Checkbutton(ctrl_frame, text="Append Unique ID", variable=self.unique_id_var).pack(side="left", padx=10)
 
         # Status & Hotkey Info
         info_frame = ttk.Frame(cfg_frame)
@@ -215,16 +217,21 @@ class MinecraftSpammerApp:
                 if not msg: # Should not happen due to trigger validation
                     break
 
+                # Append unique 4-digit ID if enabled
+                send_msg = msg
+                if self.unique_id_var.get():
+                    send_msg = f"{msg} {random.randint(1000, 9999)}"
+
                 # Automate
                 pyautogui.press('t')
                 time.sleep(0.1)
-                pyperclip.copy(msg)
+                pyperclip.copy(send_msg)
                 pyautogui.hotkey('ctrl', 'v')
                 time.sleep(0.1)
                 pyautogui.press('enter')
                 
                 self.messages_sent += 1
-                self.logger.info(f"[SENT] Slot {self.current_msg_index + 1}: {msg[:15]}...")
+                self.logger.info(f"[SENT] Slot {self.current_msg_index + 1}: {send_msg}")
                 self.root.after(0, self._refresh_counter)
                 
                 # Prep next
