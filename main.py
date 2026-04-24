@@ -16,10 +16,11 @@ from PIL import Image, ImageDraw
 # --- Windows API constants for SendInput ---
 INPUT_KEYBOARD = 1
 KEYEVENTF_KEYUP = 0x0002
-KEYEVENTF_UNICODE = 0x0004
 VK_RETURN = 0x0D
 VK_ESCAPE = 0x1B
 VK_CONTROL = 0x11
+VK_A = 0x41
+VK_BACK = 0x08
 
 class KEYBDINPUT(ctypes.Structure):
     _fields_ = [("wVk", ctypes.wintypes.WORD),
@@ -71,6 +72,20 @@ def press_t_key():
     _send_key(VK_T)
     time.sleep(0.01)
     _send_key(VK_T, KEYEVENTF_KEYUP)
+
+def clear_chat_field():
+    """Selects all existing text (Ctrl+A) and deletes it (Backspace)."""
+    # Press Ctrl + A
+    _send_key(VK_CONTROL)
+    time.sleep(0.05)
+    _send_key(VK_A)
+    time.sleep(0.05)
+    _send_key(VK_A, KEYEVENTF_KEYUP)
+    _send_key(VK_CONTROL, KEYEVENTF_KEYUP)
+    time.sleep(0.1)
+    # Press Backspace
+    press_key(VK_BACK)
+    time.sleep(0.1)
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -284,7 +299,11 @@ class MinecraftSpammerApp:
 
                     # Step 2: T to open fresh chat
                     press_t_key()
-                    time.sleep(0.5)
+                    time.sleep(0.4)
+
+                    # Step 2.5: Force clear ANY existing text (Ctrl+A -> Backspace)
+                    clear_chat_field()
+                    time.sleep(0.1)
 
                     # Step 3: Type message character by character
                     send_string(send_msg)
@@ -293,6 +312,10 @@ class MinecraftSpammerApp:
                     # Step 4: Enter to send
                     press_key(VK_RETURN)
                     time.sleep(0.3)
+
+                    # Step 5: Escape again just in case send failed and chat stayed open
+                    press_key(VK_ESCAPE)
+                    time.sleep(0.1)
 
                     self.messages_sent += 1
                     self.logger.info(f"[SENT] Slot {slot_index + 1}: {send_msg}")
