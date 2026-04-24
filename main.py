@@ -231,7 +231,12 @@ class MinecraftSpammerApp:
                 self.current_msg_index += 1
                 
                 # Wait
-                base = self.interval_var.get()
+                try:
+                    base = float(self.interval_var.get())
+                except (ValueError, tk.TclError):
+                    self.logger.warning("[ENGINE] Invalid interval value detected. Falling back to 1.0s.")
+                    base = 1.0
+                
                 wait_time = base + (random.uniform(-base*0.3, base*0.3) if self.variance_var.get() else 0)
                 wait_time = max(0.1, wait_time)
                 
