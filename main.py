@@ -36,7 +36,7 @@ class GuiLogHandler(logging.Handler):
 class MinecraftSpammerApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("MC Chat Spammer v1.0")
+        self.root.title("aritive's chat spammer")
         self.root.geometry("620x680")
         self.root.minsize(550, 650)
         
@@ -44,6 +44,18 @@ class MinecraftSpammerApp:
         self.bg_color = "#f4f4f9"
         self.accent_color = "#2c3e50"
         self.root.configure(bg=self.bg_color)
+        
+        # Set Window Icons (Taskbar and Top Bar)
+        icon_path = resource_path("assets/icon.ico")
+        if os.path.exists(icon_path):
+            try:
+                self.root.iconbitmap(icon_path)
+            except Exception:
+                pass
+        
+        # Background Image
+        self.bg_image_path = resource_path("assets/background.jpg")
+        self._setup_background()
         
         self.style = ttk.Style()
         self.style.theme_use('clam')
@@ -74,6 +86,25 @@ class MinecraftSpammerApp:
         self.root.protocol("WM_DELETE_WINDOW", self._on_window_close)
         self.root.after(100, self._poll_log_queue)
         self.logger.info("Ready. Press F6 to Start (Global), F7 to Stop.")
+
+    def _setup_background(self):
+        if not os.path.exists(self.bg_image_path):
+            return
+        
+        try:
+            from PIL import ImageTk
+            bg_img = Image.open(self.bg_image_path)
+            # Resize initially to match room geometry
+            bg_img = bg_img.resize((620, 680), Image.Resampling.LANCZOS)
+            self.bg_photo = ImageTk.PhotoImage(bg_img)
+            
+            self.bg_label = tk.Label(self.root, image=self.bg_photo)
+            self.bg_label.place(relx=0, rely=0, relwidth=1, relheight=1)
+            
+            # Make label sit behind everything
+            self.bg_label.lower()
+        except Exception as e:
+            print(f"Error loading background: {e}")
 
     def _create_widgets(self):
         # --- Top Section: Messages ---
@@ -166,7 +197,7 @@ class MinecraftSpammerApp:
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Exit Application", self._quit_app)
         )
-        self.tray_icon = pystray.Icon("mc_spammer", self._create_tray_image(), "MC Spammer", menu)
+        self.tray_icon = pystray.Icon("mc_spammer", self._create_tray_image(), "aritive's chat spammer", menu)
         threading.Thread(target=self.tray_icon.run, daemon=True).start()
 
     def _trigger_start(self):
@@ -219,7 +250,7 @@ class MinecraftSpammerApp:
                     # Build the final message
                     send_msg = msg
                     if self.unique_id_var.get():
-                        send_msg = f"{msg} {random.randint(1000, 9999)}"
+                        send_msg = f"{msg} {random.randint(0, 1000)}"
 
                     # --- SIMPLE AUTOMATION ---
                     # EXACT SEQUENCE: press t, type out message, enter.

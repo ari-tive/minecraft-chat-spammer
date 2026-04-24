@@ -12,7 +12,8 @@ Remove-Item -Path "build", "dist" -Recurse -ErrorAction SilentlyContinue
 Write-Host "Starting PyInstaller Build..." -ForegroundColor Green
 
 python -m PyInstaller --noconfirm --onefile --windowed `
-    --name "MCChatSpammer" `
+    --name "aritive's chat spammer" `
+    --icon "assets/icon.ico" `
     --add-data "assets;assets" `
     main.py
 
