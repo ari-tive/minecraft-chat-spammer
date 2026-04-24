@@ -222,21 +222,39 @@ class MinecraftSpammerApp:
                 if self.unique_id_var.get():
                     send_msg = f"{msg} {random.randint(1000, 9999)}"
 
-                # 1. Copy to clipboard FIRST (before opening chat)
+                # --- Robust automation sequence ---
+                # Step 1: Set clipboard and verify
                 pyperclip.copy(send_msg)
+                time.sleep(0.1)
+                # Verify clipboard actually has our text
+                try:
+                    clip_check = pyperclip.paste()
+                    if clip_check != send_msg:
+                        pyperclip.copy(send_msg)
+                        time.sleep(0.1)
+                except Exception:
+                    pass
+
+                # Step 2: Release any stuck modifier keys first
+                for key in ['ctrl', 'shift', 'alt']:
+                    pyautogui.keyUp(key)
                 time.sleep(0.05)
 
-                # 2. Open chat
+                # Step 3: Open Minecraft chat
                 pyautogui.press('t')
-                time.sleep(0.3)
+                time.sleep(0.4)
 
-                # 3. Paste from clipboard
-                pyautogui.hotkey('ctrl', 'v')
-                time.sleep(0.15)
+                # Step 4: Paste using explicit keyDown/keyUp (more reliable than hotkey)
+                pyautogui.keyDown('ctrl')
+                time.sleep(0.05)
+                pyautogui.press('v')
+                time.sleep(0.05)
+                pyautogui.keyUp('ctrl')
+                time.sleep(0.2)
 
-                # 4. Send
+                # Step 5: Send the message
                 pyautogui.press('enter')
-                time.sleep(0.1)
+                time.sleep(0.15)
                 
                 self.messages_sent += 1
                 self.logger.info(f"[SENT] Slot {self.current_msg_index + 1}: {send_msg}")
