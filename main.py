@@ -222,13 +222,21 @@ class MinecraftSpammerApp:
                 if self.unique_id_var.get():
                     send_msg = f"{msg} {random.randint(1000, 9999)}"
 
-                # Automate
-                pyautogui.press('t')
-                time.sleep(0.1)
+                # 1. Copy to clipboard FIRST (before opening chat)
                 pyperclip.copy(send_msg)
+                time.sleep(0.05)
+
+                # 2. Open chat
+                pyautogui.press('t')
+                time.sleep(0.3)
+
+                # 3. Paste from clipboard
                 pyautogui.hotkey('ctrl', 'v')
-                time.sleep(0.1)
+                time.sleep(0.15)
+
+                # 4. Send
                 pyautogui.press('enter')
+                time.sleep(0.1)
                 
                 self.messages_sent += 1
                 self.logger.info(f"[SENT] Slot {self.current_msg_index + 1}: {send_msg}")
