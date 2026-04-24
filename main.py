@@ -1,11 +1,13 @@
 import sys
 import tkinter as tk
-from tkinter import ttk
-from tkinter import scrolledtext
+from tkinter import ttk, scrolledtext, messagebox
 import logging
 import queue
 import time
 import threading
+import pystray
+from pynput import keyboard
+from PIL import Image, ImageDraw
 
 class GuiLogHandler(logging.Handler):
     """Custom logging handler to send logs to a Tkinter ScrolledText widget."""
@@ -34,12 +36,23 @@ class MinecraftSpammerApp:
         self.variance_var = tk.BooleanVar(value=True)
         self.messages_sent = 0
         self.log_queue = queue.Queue()
+        self.is_running = False
+        self.stop_event = threading.Event()
 
+        # UI Components
         self._create_widgets()
         self._setup_logging()
         
+        # Threading/System Integration
+        self._setup_hotkeys()
+        self._setup_tray()
+        
+        # Protocols
+        self.root.protocol("WM_DELETE_WINDOW", self._on_window_close)
+        
         # Start the queue polling
         self.root.after(100, self._poll_log_queue)
+        self.logger.info("Application initialized. Press F6 to Start (Global), F7 to Stop.")
 
     def _create_widgets(self):
         style = ttk.Style()
@@ -102,26 +115,70 @@ class MinecraftSpammerApp:
     def _setup_logging(self):
         self.logger = logging.getLogger("SpammerLogger")
         self.logger.setLevel(logging.INFO)
-        
-        # Remove any existing handlers
         if self.logger.hasHandlers():
             self.logger.handlers.clear()
 
         gh_formatter = logging.Formatter('[%(asctime)s] %(levelname)s: %(message)s', datefmt='%H:%M:%S')
-        
-        # Console handler just in case
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(gh_formatter)
-        
-        # GUI handler
         self.gui_handler = GuiLogHandler(self.log_queue)
         self.gui_handler.setFormatter(gh_formatter)
-        
-        self.logger.addHandler(console_handler)
         self.logger.addHandler(self.gui_handler)
 
+    def _setup_hotkeys(self):
+        """Initialize global hotkeys in a background thread."""
+        def on_activate_start():
+            self.logger.info("[HOTKEY] START command received via F6.")
+            # Trigger logic will be added in Phase 3
+            
+        def on_activate_stop():
+            self.logger.info("[HOTKEY] STOP command received via F7.")
+            # Trigger logic will be added in Phase 3
+
+        self.hotkey_listener = keyboard.GlobalHotKeys({
+            '<f6>': on_activate_start,
+            '<f7>': on_activate_stop
+        })
+        self.hotkey_listener.start()
+
+    def _create_tray_image(self):
+        """Generate a simple 64x64 icon for the system tray."""
+        image = Image.new('RGB', (64, 64), color=(0, 128, 0)) # Dark Green
+        d = ImageDraw.Draw(image)
+        d.rectangle([16, 16, 48, 48], fill=(255, 255, 255)) # White inner square
+        return image
+
+    def _setup_tray(self):
+        """Setup and start the system tray icon in a separate daemon thread."""
+        menu = pystray.Menu(
+            pystray.MenuItem("Show", self._show_window),
+            pystray.MenuItem("Hide", self._hide_window),
+            pystray.MenuItem("Exit", self._quit_app)
+        )
+        self.tray_icon = pystray.Icon("spammer", self._create_tray_image(), "MC Spammer", menu)
+        threading.Thread(target=self.tray_icon.run, daemon=True).start()
+
+    def _show_window(self, icon=None, item=None):
+        self.root.after(0, self.root.deiconify)
+        self.root.after(0, self.root.lift)
+
+    def _hide_window(self, icon=None, item=None):
+        self.root.after(0, self.root.withdraw)
+
+    def _on_window_close(self):
+        """Intercept close button and minimize to tray instead."""
+        self.logger.info("Application minimized to tray. Right-click tray icon to Exit.")
+        self._hide_window()
+
+    def _quit_app(self, icon=None, item=None):
+        """Clean shutdown of all listeners and the GUI."""
+        self.logger.info("Shutting down...")
+        if hasattr(self, 'hotkey_listener'):
+            self.hotkey_listener.stop()
+        if hasattr(self, 'tray_icon'):
+            self.tray_icon.stop()
+        self.root.after(0, self.root.destroy)
+        sys.exit(0)
+
     def _poll_log_queue(self):
-        """Check the queue periodically and update the text widget safely from the main thread."""
         try:
             while True:
                 msg = self.log_queue.get_nowait()
@@ -134,8 +191,7 @@ class MinecraftSpammerApp:
         self.root.after(100, self._poll_log_queue)
         
     def _test_log(self):
-        """Test button callback to emit a log."""
-        self.logger.info("Test log generated.")
+        self.logger.info("Manual log check - GUI and threads healthy.")
         self.messages_sent += 1
         self._update_counter_lbl()
 
@@ -146,6 +202,4 @@ class MinecraftSpammerApp:
 if __name__ == "__main__":
     root = tk.Tk()
     app = MinecraftSpammerApp(root)
-    # emit an initial log
-    app.logger.info("Application started. Waiting for configuration.")
     root.mainloop()
