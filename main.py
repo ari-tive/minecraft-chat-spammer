@@ -5,9 +5,15 @@ import logging
 import queue
 import time
 import threading
+import random
 import pystray
 from pynput import keyboard
 from PIL import Image, ImageDraw
+import pyautogui
+import pyperclip
+
+# Fail-safe: move mouse to corner to abort pyautogui
+pyautogui.FAILSAFE = True
 
 class GuiLogHandler(logging.Handler):
     """Custom logging handler to send logs to a Tkinter ScrolledText widget."""
@@ -38,6 +44,7 @@ class MinecraftSpammerApp:
         self.log_queue = queue.Queue()
         self.is_running = False
         self.stop_event = threading.Event()
+        self.current_msg_index = 0
 
         # UI Components
         self._create_widgets()
@@ -59,7 +66,7 @@ class MinecraftSpammerApp:
         style.theme_use('clam')
         
         # --- Top Section: Message Slots ---
-        messages_frame = ttk.LabelFrame(self.root, text="Messages", padding=10)
+        messages_frame = ttk.LabelFrame(self.root, text="Messages (Sequenced)", padding=10)
         messages_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
         messages_frame.columnconfigure(1, weight=1)
 
@@ -93,9 +100,9 @@ class MinecraftSpammerApp:
         self.stop_hotkey_lbl = ttk.Label(hotkeys_frame, text="Stop: F7", font=("Segoe UI", 9, "bold"), foreground="red")
         self.stop_hotkey_lbl.pack(side="left")
 
-        # Test Button
-        test_btn = ttk.Button(config_frame, text="Test Log", command=self._test_log)
-        test_btn.grid(row=1, column=3, sticky="e")
+        # Status indicator
+        self.status_indicator = ttk.Label(config_frame, text="IDLE", foreground="gray", font=("Segoe UI", 10, "bold"))
+        self.status_indicator.grid(row=1, column=3, sticky="e")
 
         # --- Bottom Section: Status & Logging ---
         status_frame = ttk.Frame(self.root, padding=10)
@@ -124,30 +131,112 @@ class MinecraftSpammerApp:
         self.logger.addHandler(self.gui_handler)
 
     def _setup_hotkeys(self):
-        """Initialize global hotkeys in a background thread."""
-        def on_activate_start():
-            self.logger.info("[HOTKEY] START command received via F6.")
-            # Trigger logic will be added in Phase 3
-            
-        def on_activate_stop():
-            self.logger.info("[HOTKEY] STOP command received via F7.")
-            # Trigger logic will be added in Phase 3
-
+        """Initialize global hotkeys."""
         self.hotkey_listener = keyboard.GlobalHotKeys({
-            '<f6>': on_activate_start,
-            '<f7>': on_activate_stop
+            '<f6>': self._trigger_start,
+            '<f7>': self._trigger_stop
         })
         self.hotkey_listener.start()
 
+    def _trigger_start(self):
+        if not self.is_running:
+            self.is_running = True
+            self.stop_event.clear()
+            threading.Thread(target=self._spam_worker, daemon=True).start()
+            self.logger.info("[ENGINE] Spammer started via hotkey.")
+            self.root.after(0, lambda: self.status_indicator.config(text="ACTIVE", foreground="green"))
+
+    def _trigger_stop(self):
+        if self.is_running:
+            self.stop_event.set()
+            self.is_running = False
+            self.logger.info("[ENGINE] Stop signal received.")
+            self.root.after(0, lambda: self.status_indicator.config(text="IDLE", foreground="gray"))
+
+    def _spam_worker(self):
+        """Main automation loop."""
+        try:
+            # 5-second countdown
+            for i in range(5, 0, -1):
+                if self.stop_event.is_set():
+                    return
+                self.logger.info(f"[ENGINE] Starting in {i} seconds... Switch to Minecraft!")
+                time.sleep(1)
+
+            if self.stop_event.is_set():
+                return
+
+            self.logger.info("[ENGINE] Automation ACTIVE.")
+            
+            while not self.stop_event.is_set():
+                # Find next filled message slot
+                messages = [v.get().strip() for v in self.message_vars]
+                filled_slots = [i for i, m in enumerate(messages) if m]
+                
+                if not filled_slots:
+                    self.logger.warning("[ENGINE] No messages to send. Fill at least one slot.")
+                    self._trigger_stop()
+                    break
+
+                # Sequential cycling
+                while True:
+                    if self.current_msg_index >= 4:
+                        self.current_msg_index = 0
+                    
+                    msg = messages[self.current_msg_index]
+                    if msg:
+                        break
+                    self.current_msg_index += 1
+
+                # Execute automation
+                try:
+                    pyautogui.press('t')
+                    time.sleep(0.1)
+                    pyperclip.copy(msg)
+                    pyautogui.hotkey('ctrl', 'v')
+                    time.sleep(0.1)
+                    pyautogui.press('enter')
+                    
+                    self.messages_sent += 1
+                    self.logger.info(f"[SENT] Slot {self.current_msg_index + 1}: {msg[:20]}...")
+                    self.root.after(0, self._update_counter_lbl)
+                except Exception as e:
+                    self.logger.error(f"[ERROR] Automation failed: {e}")
+                    break
+
+                # Sequence to next slot
+                self.current_msg_index += 1
+
+                # Calculate next interval
+                base = self.interval_var.get()
+                if self.variance_var.get():
+                    variance = base * 0.3
+                    interval = base + random.uniform(-variance, variance)
+                else:
+                    interval = base
+                
+                interval = max(0.1, interval) # Safety floor
+                
+                # Sleep in increments to remain responsive to stop signal
+                start_sleep = time.time()
+                while time.time() - start_sleep < interval:
+                    if self.stop_event.is_set():
+                        return
+                    time.sleep(0.1)
+
+        except Exception as e:
+            self.logger.error(f"[ENGINE] Fatal worker error: {e}")
+        finally:
+            self.is_running = False
+            self.root.after(0, lambda: self.status_indicator.config(text="IDLE", foreground="gray"))
+
     def _create_tray_image(self):
-        """Generate a simple 64x64 icon for the system tray."""
-        image = Image.new('RGB', (64, 64), color=(0, 128, 0)) # Dark Green
+        image = Image.new('RGB', (64, 64), color=(0, 128, 0))
         d = ImageDraw.Draw(image)
-        d.rectangle([16, 16, 48, 48], fill=(255, 255, 255)) # White inner square
+        d.rectangle([16, 16, 48, 48], fill=(255, 255, 255))
         return image
 
     def _setup_tray(self):
-        """Setup and start the system tray icon in a separate daemon thread."""
         menu = pystray.Menu(
             pystray.MenuItem("Show", self._show_window),
             pystray.MenuItem("Hide", self._hide_window),
@@ -164,13 +253,10 @@ class MinecraftSpammerApp:
         self.root.after(0, self.root.withdraw)
 
     def _on_window_close(self):
-        """Intercept close button and minimize to tray instead."""
-        self.logger.info("Application minimized to tray. Right-click tray icon to Exit.")
+        self.logger.info("Application minimized to tray.")
         self._hide_window()
 
     def _quit_app(self, icon=None, item=None):
-        """Clean shutdown of all listeners and the GUI."""
-        self.logger.info("Shutting down...")
         if hasattr(self, 'hotkey_listener'):
             self.hotkey_listener.stop()
         if hasattr(self, 'tray_icon'):
@@ -190,11 +276,6 @@ class MinecraftSpammerApp:
             pass
         self.root.after(100, self._poll_log_queue)
         
-    def _test_log(self):
-        self.logger.info("Manual log check - GUI and threads healthy.")
-        self.messages_sent += 1
-        self._update_counter_lbl()
-
     def _update_counter_lbl(self):
         self.counter_lbl.config(text=f"Messages Sent: {self.messages_sent}")
 
