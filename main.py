@@ -7,85 +7,13 @@ import queue
 import time
 import threading
 import random
-import ctypes
-import ctypes.wintypes
 import pystray
 from pynput import keyboard
 from PIL import Image, ImageDraw
+import pyautogui
 
-# --- Windows API constants for SendInput ---
-INPUT_KEYBOARD = 1
-KEYEVENTF_KEYUP = 0x0002
-VK_RETURN = 0x0D
-VK_ESCAPE = 0x1B
-VK_CONTROL = 0x11
-VK_A = 0x41
-VK_BACK = 0x08
-
-class KEYBDINPUT(ctypes.Structure):
-    _fields_ = [("wVk", ctypes.wintypes.WORD),
-                ("wScan", ctypes.wintypes.WORD),
-                ("dwFlags", ctypes.wintypes.DWORD),
-                ("time", ctypes.wintypes.DWORD),
-                ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong))]
-
-class INPUT(ctypes.Structure):
-    class _INPUT(ctypes.Union):
-        _fields_ = [("ki", KEYBDINPUT)]
-    _fields_ = [("type", ctypes.wintypes.DWORD),
-                ("_input", _INPUT)]
-
-def _send_key(vk, flags=0):
-    """Send a single virtual key event via Windows SendInput."""
-    inp = INPUT(type=INPUT_KEYBOARD)
-    inp._input.ki = KEYBDINPUT(wVk=vk, wScan=0, dwFlags=flags, time=0,
-                                dwExtraInfo=ctypes.pointer(ctypes.c_ulong(0)))
-    ctypes.windll.user32.SendInput(1, ctypes.pointer(inp), ctypes.sizeof(INPUT))
-
-def _send_unicode_char(char):
-    """Send a single unicode character via SendInput (KEYEVENTF_UNICODE)."""
-    inp_down = INPUT(type=INPUT_KEYBOARD)
-    inp_down._input.ki = KEYBDINPUT(wVk=0, wScan=ord(char), dwFlags=KEYEVENTF_UNICODE,
-                                     time=0, dwExtraInfo=ctypes.pointer(ctypes.c_ulong(0)))
-    inp_up = INPUT(type=INPUT_KEYBOARD)
-    inp_up._input.ki = KEYBDINPUT(wVk=0, wScan=ord(char),
-                                   dwFlags=KEYEVENTF_UNICODE | KEYEVENTF_KEYUP,
-                                   time=0, dwExtraInfo=ctypes.pointer(ctypes.c_ulong(0)))
-    ctypes.windll.user32.SendInput(1, ctypes.pointer(inp_down), ctypes.sizeof(INPUT))
-    ctypes.windll.user32.SendInput(1, ctypes.pointer(inp_up), ctypes.sizeof(INPUT))
-
-def send_string(text):
-    """Type an entire string using Unicode SendInput (no clipboard needed)."""
-    for char in text:
-        _send_unicode_char(char)
-        time.sleep(0.02)  # 20ms between characters — safe for Minecraft Java
-
-def press_key(vk):
-    """Press and release a virtual key."""
-    _send_key(vk)
-    time.sleep(0.01)
-    _send_key(vk, KEYEVENTF_KEYUP)
-
-def press_t_key():
-    """Press 'T' to open Minecraft chat via virtual key code."""
-    VK_T = 0x54
-    _send_key(VK_T)
-    time.sleep(0.01)
-    _send_key(VK_T, KEYEVENTF_KEYUP)
-
-def clear_chat_field():
-    """Selects all existing text (Ctrl+A) and deletes it (Backspace)."""
-    # Press Ctrl + A
-    _send_key(VK_CONTROL)
-    time.sleep(0.05)
-    _send_key(VK_A)
-    time.sleep(0.05)
-    _send_key(VK_A, KEYEVENTF_KEYUP)
-    _send_key(VK_CONTROL, KEYEVENTF_KEYUP)
-    time.sleep(0.1)
-    # Press Backspace
-    press_key(VK_BACK)
-    time.sleep(0.1)
+# Fail-safe: move mouse to corner to abort pyautogui
+pyautogui.FAILSAFE = True
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -293,28 +221,20 @@ class MinecraftSpammerApp:
                     if self.unique_id_var.get():
                         send_msg = f"{msg} {random.randint(1000, 9999)}"
 
-                    # Step 1: Escape to close any stale chat/menu
-                    press_key(VK_ESCAPE)
-                    time.sleep(0.3)
+                    # --- SIMPLE AUTOMATION ---
+                    # EXACT SEQUENCE: press t, type out message, enter.
 
-                    # Step 2: T to open fresh chat
-                    press_t_key()
-                    time.sleep(0.4)
+                    # 1. Press T to open chat
+                    pyautogui.press('t')
+                    time.sleep(0.3)  # Wait for chat to open
 
-                    # Step 2.5: Force clear ANY existing text (Ctrl+A -> Backspace)
-                    clear_chat_field()
-                    time.sleep(0.1)
+                    # 2. Type message out
+                    # We use write() to simulate individual keystrokes so no clipboard bugs can occur
+                    pyautogui.write(send_msg, interval=0.01)
+                    time.sleep(0.1)  # small buffer
 
-                    # Step 3: Type message character by character
-                    send_string(send_msg)
-                    time.sleep(0.2)
-
-                    # Step 4: Enter to send
-                    press_key(VK_RETURN)
-                    time.sleep(0.3)
-
-                    # Step 5: Escape again just in case send failed and chat stayed open
-                    press_key(VK_ESCAPE)
+                    # 3. Hit enter
+                    pyautogui.press('enter')
                     time.sleep(0.1)
 
                     self.messages_sent += 1
