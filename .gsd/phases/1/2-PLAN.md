@@ -1,5 +1,5 @@
----
 phase: 1
+---
 plan: 2
 wave: 1
 ---

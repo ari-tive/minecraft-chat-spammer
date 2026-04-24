@@ -1,4 +1,5 @@
 import sys
+import os
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 import logging
@@ -15,6 +16,14 @@ import pyperclip
 # Fail-safe: move mouse to corner to abort pyautogui
 pyautogui.FAILSAFE = True
 
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
 class GuiLogHandler(logging.Handler):
     """Custom logging handler to send logs to a Tkinter ScrolledText widget."""
     def __init__(self, log_queue):
@@ -28,13 +37,20 @@ class GuiLogHandler(logging.Handler):
 class MinecraftSpammerApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("Minecraft Chat Spammer Simulator")
-        self.root.geometry("600x650")
-        self.root.minsize(500, 600)
+        self.root.title("MC Chat Spammer v1.0")
+        self.root.geometry("620x680")
+        self.root.minsize(550, 650)
         
-        # Grid weight configuration
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(2, weight=1)
+        # UI Styles
+        self.bg_color = "#f4f4f9"
+        self.accent_color = "#2c3e50"
+        self.root.configure(bg=self.bg_color)
+        
+        self.style = ttk.Style()
+        self.style.theme_use('clam')
+        self.style.configure("Custom.TLabelframe", background=self.bg_color)
+        self.style.configure("Custom.TLabelframe.Label", font=("Segoe UI", 10, "bold"), foreground=self.accent_color)
+        self.style.configure("Action.TButton", font=("Segoe UI", 9, "bold"))
 
         # Variables
         self.message_vars = [tk.StringVar() for _ in range(4)]
@@ -46,223 +62,218 @@ class MinecraftSpammerApp:
         self.stop_event = threading.Event()
         self.current_msg_index = 0
 
-        # UI Components
+        # Grid weight configuration
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(2, weight=1)
+
         self._create_widgets()
         self._setup_logging()
-        
-        # Threading/System Integration
         self._setup_hotkeys()
         self._setup_tray()
         
-        # Protocols
         self.root.protocol("WM_DELETE_WINDOW", self._on_window_close)
-        
-        # Start the queue polling
         self.root.after(100, self._poll_log_queue)
-        self.logger.info("Application initialized. Press F6 to Start (Global), F7 to Stop.")
+        self.logger.info("Ready. Press F6 to Start (Global), F7 to Stop.")
 
     def _create_widgets(self):
-        style = ttk.Style()
-        style.theme_use('clam')
-        
-        # --- Top Section: Message Slots ---
-        messages_frame = ttk.LabelFrame(self.root, text="Messages (Sequenced)", padding=10)
-        messages_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
-        messages_frame.columnconfigure(1, weight=1)
+        # --- Top Section: Messages ---
+        msg_frame = ttk.LabelFrame(self.root, text=" Message Slots (Sequential Cycle) ", padding=15, style="Custom.TLabelframe")
+        msg_frame.grid(row=0, column=0, sticky="ew", padx=20, pady=(20, 10))
+        msg_frame.columnconfigure(1, weight=1)
 
         for i in range(4):
-            ttk.Label(messages_frame, text=f"Slot {i+1}:").grid(row=i, column=0, sticky="w", pady=5)
-            entry = ttk.Entry(messages_frame, textvariable=self.message_vars[i], width=50)
-            entry.grid(row=i, column=1, sticky="ew", padx=5, pady=5)
+            ttk.Label(msg_frame, text=f"Msg {i+1}:", font=("Segoe UI", 9)).grid(row=i, column=0, sticky="w", pady=6)
+            ent = ttk.Entry(msg_frame, textvariable=self.message_vars[i], font=("Segoe UI", 10))
+            ent.grid(row=i, column=1, sticky="ew", padx=(10, 0), pady=6)
 
-        # --- Middle Section: Configuration ---
-        config_frame = ttk.LabelFrame(self.root, text="Configuration", padding=10)
-        config_frame.grid(row=1, column=0, sticky="ew", padx=10, pady=5)
-        config_frame.columnconfigure(1, weight=1)
-        config_frame.columnconfigure(3, weight=1)
+        # --- Middle Section: Config ---
+        cfg_frame = ttk.LabelFrame(self.root, text=" Engine Settings ", padding=15, style="Custom.TLabelframe")
+        cfg_frame.grid(row=1, column=0, sticky="ew", padx=20, pady=10)
+        cfg_frame.columnconfigure(1, weight=1)
 
-        # Interval
-        ttk.Label(config_frame, text="Base Interval (sec):").grid(row=0, column=0, sticky="w", pady=5)
-        interval_spin = ttk.Spinbox(config_frame, from_=0.1, to=60.0, increment=0.1, 
-                                    textvariable=self.interval_var, width=8)
-        interval_spin.grid(row=0, column=1, sticky="w", padx=5, pady=5)
+        # Controls Row
+        ctrl_frame = ttk.Frame(cfg_frame)
+        ctrl_frame.grid(row=0, column=0, columnspan=2, sticky="w")
+        
+        ttk.Label(ctrl_frame, text="Interval (s):").pack(side="left")
+        ttk.Spinbox(ctrl_frame, from_=0.1, to=60.0, increment=0.1, textvariable=self.interval_var, width=6).pack(side="left", padx=5)
+        
+        ttk.Checkbutton(ctrl_frame, text="±30% Random Variance", variable=self.variance_var).pack(side="left", padx=15)
 
-        # Variance
-        variance_check = ttk.Checkbutton(config_frame, text="Enable \u00B130% Variance", 
-                                         variable=self.variance_var)
-        variance_check.grid(row=0, column=2, sticky="w", padx=15, pady=5)
+        # Status & Hotkey Info
+        info_frame = ttk.Frame(cfg_frame)
+        info_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(15, 0))
+        
+        self.status_dot = tk.Label(info_frame, text=" ● ", foreground="gray", font=("Segoe UI", 14), bg=self.bg_color)
+        self.status_dot.pack(side="left")
+        
+        self.status_lbl = ttk.Label(info_frame, text="IDLE", font=("Segoe UI", 10, "bold"))
+        self.status_lbl.pack(side="left")
+        
+        ttk.Label(info_frame, text=" |  Start: F6  |  Stop: F7", foreground="#7f8c8d").pack(side="left", padx=10)
+        
+        ttk.Button(info_frame, text="Reset Count", command=self._reset_counter, style="Action.TButton").pack(side="right")
 
-        # Hotkey Labels
-        hotkeys_frame = ttk.Frame(config_frame)
-        hotkeys_frame.grid(row=1, column=0, columnspan=3, sticky="w", pady=10)
-        self.start_hotkey_lbl = ttk.Label(hotkeys_frame, text="Start: F6", font=("Segoe UI", 9, "bold"), foreground="green")
-        self.start_hotkey_lbl.pack(side="left", padx=(0, 15))
-        self.stop_hotkey_lbl = ttk.Label(hotkeys_frame, text="Stop: F7", font=("Segoe UI", 9, "bold"), foreground="red")
-        self.stop_hotkey_lbl.pack(side="left")
+        # --- Bottom Section: Logs ---
+        log_frame = ttk.Frame(self.root, padding=20)
+        log_frame.grid(row=2, column=0, sticky="nsew")
+        log_frame.columnconfigure(0, weight=1)
+        log_frame.rowconfigure(1, weight=1)
 
-        # Status indicator
-        self.status_indicator = ttk.Label(config_frame, text="IDLE", foreground="gray", font=("Segoe UI", 10, "bold"))
-        self.status_indicator.grid(row=1, column=3, sticky="e")
+        self.counter_lbl = ttk.Label(log_frame, text=f"MESSAGES SENT: {self.messages_sent}", font=("Impact", 12))
+        self.counter_lbl.grid(row=0, column=0, sticky="w", pady=(0, 8))
 
-        # --- Bottom Section: Status & Logging ---
-        status_frame = ttk.Frame(self.root, padding=10)
-        status_frame.grid(row=2, column=0, sticky="nsew", padx=10, pady=5)
-        status_frame.columnconfigure(0, weight=1)
-        status_frame.rowconfigure(1, weight=1)
-
-        # Counter Label
-        self.counter_lbl = ttk.Label(status_frame, text=f"Messages Sent: {self.messages_sent}", font=("Segoe UI", 10, "bold"))
-        self.counter_lbl.grid(row=0, column=0, sticky="w", pady=(0, 5))
-
-        # Log Text Area
-        self.log_text = scrolledtext.ScrolledText(status_frame, state='disabled', bg="black", fg="#00FF00", 
-                                                  font=("Consolas", 10), wrap="word")
+        self.log_text = scrolledtext.ScrolledText(log_frame, state='disabled', bg="#1e1e1e", fg="#00ff66", 
+                                                  font=("Consolas", 9), borderwidth=0, padx=5, pady=5)
         self.log_text.grid(row=1, column=0, sticky="nsew")
 
     def _setup_logging(self):
-        self.logger = logging.getLogger("SpammerLogger")
+        self.logger = logging.getLogger("Spammer")
         self.logger.setLevel(logging.INFO)
-        if self.logger.hasHandlers():
-            self.logger.handlers.clear()
-
-        gh_formatter = logging.Formatter('[%(asctime)s] %(levelname)s: %(message)s', datefmt='%H:%M:%S')
+        if self.logger.hasHandlers(): self.logger.handlers.clear()
+        
+        fmt = logging.Formatter('[%(asctime)s] %(message)s', datefmt='%H:%M:%S')
         self.gui_handler = GuiLogHandler(self.log_queue)
-        self.gui_handler.setFormatter(gh_formatter)
+        self.gui_handler.setFormatter(fmt)
         self.logger.addHandler(self.gui_handler)
 
     def _setup_hotkeys(self):
-        """Initialize global hotkeys."""
         self.hotkey_listener = keyboard.GlobalHotKeys({
             '<f6>': self._trigger_start,
             '<f7>': self._trigger_stop
         })
         self.hotkey_listener.start()
 
-    def _trigger_start(self):
-        if not self.is_running:
-            self.is_running = True
-            self.stop_event.clear()
-            threading.Thread(target=self._spam_worker, daemon=True).start()
-            self.logger.info("[ENGINE] Spammer started via hotkey.")
-            self.root.after(0, lambda: self.status_indicator.config(text="ACTIVE", foreground="green"))
-
-    def _trigger_stop(self):
-        if self.is_running:
-            self.stop_event.set()
-            self.is_running = False
-            self.logger.info("[ENGINE] Stop signal received.")
-            self.root.after(0, lambda: self.status_indicator.config(text="IDLE", foreground="gray"))
-
-    def _spam_worker(self):
-        """Main automation loop."""
-        try:
-            # 5-second countdown
-            for i in range(5, 0, -1):
-                if self.stop_event.is_set():
-                    return
-                self.logger.info(f"[ENGINE] Starting in {i} seconds... Switch to Minecraft!")
-                time.sleep(1)
-
-            if self.stop_event.is_set():
-                return
-
-            self.logger.info("[ENGINE] Automation ACTIVE.")
-            
-            while not self.stop_event.is_set():
-                # Find next filled message slot
-                messages = [v.get().strip() for v in self.message_vars]
-                filled_slots = [i for i, m in enumerate(messages) if m]
-                
-                if not filled_slots:
-                    self.logger.warning("[ENGINE] No messages to send. Fill at least one slot.")
-                    self._trigger_stop()
-                    break
-
-                # Sequential cycling
-                while True:
-                    if self.current_msg_index >= 4:
-                        self.current_msg_index = 0
-                    
-                    msg = messages[self.current_msg_index]
-                    if msg:
-                        break
-                    self.current_msg_index += 1
-
-                # Execute automation
-                try:
-                    pyautogui.press('t')
-                    time.sleep(0.1)
-                    pyperclip.copy(msg)
-                    pyautogui.hotkey('ctrl', 'v')
-                    time.sleep(0.1)
-                    pyautogui.press('enter')
-                    
-                    self.messages_sent += 1
-                    self.logger.info(f"[SENT] Slot {self.current_msg_index + 1}: {msg[:20]}...")
-                    self.root.after(0, self._update_counter_lbl)
-                except Exception as e:
-                    self.logger.error(f"[ERROR] Automation failed: {e}")
-                    break
-
-                # Sequence to next slot
-                self.current_msg_index += 1
-
-                # Calculate next interval
-                base = self.interval_var.get()
-                if self.variance_var.get():
-                    variance = base * 0.3
-                    interval = base + random.uniform(-variance, variance)
-                else:
-                    interval = base
-                
-                interval = max(0.1, interval) # Safety floor
-                
-                # Sleep in increments to remain responsive to stop signal
-                start_sleep = time.time()
-                while time.time() - start_sleep < interval:
-                    if self.stop_event.is_set():
-                        return
-                    time.sleep(0.1)
-
-        except Exception as e:
-            self.logger.error(f"[ENGINE] Fatal worker error: {e}")
-        finally:
-            self.is_running = False
-            self.root.after(0, lambda: self.status_indicator.config(text="IDLE", foreground="gray"))
-
     def _create_tray_image(self):
-        image = Image.new('RGB', (64, 64), color=(0, 128, 0))
+        icon_path = resource_path("assets/icon.png")
+        if os.path.exists(icon_path):
+            try:
+                return Image.open(icon_path)
+            except Exception:
+                pass
+        
+        # Fallback icon
+        image = Image.new('RGB', (64, 64), color=(44, 62, 80))
         d = ImageDraw.Draw(image)
-        d.rectangle([16, 16, 48, 48], fill=(255, 255, 255))
+        d.rectangle([16, 16, 48, 48], fill=(46, 204, 113))
         return image
 
     def _setup_tray(self):
         menu = pystray.Menu(
-            pystray.MenuItem("Show", self._show_window),
-            pystray.MenuItem("Hide", self._hide_window),
-            pystray.MenuItem("Exit", self._quit_app)
+            pystray.MenuItem("Show Window", self._show_window, default=True),
+            pystray.MenuItem("Hide Window", self._hide_window),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Exit Application", self._quit_app)
         )
-        self.tray_icon = pystray.Icon("spammer", self._create_tray_image(), "MC Spammer", menu)
+        self.tray_icon = pystray.Icon("mc_spammer", self._create_tray_image(), "MC Spammer", menu)
         threading.Thread(target=self.tray_icon.run, daemon=True).start()
+
+    def _trigger_start(self):
+        if self.is_running: return
+        
+        # Validation
+        messages = [v.get().strip() for v in self.message_vars]
+        if not any(messages):
+            self.logger.error("[SYSTEM] Please fill at least one message slot!")
+            return
+
+        self.is_running = True
+        self.stop_event.clear()
+        threading.Thread(target=self._spam_worker, daemon=True).start()
+        self.root.after(0, lambda: self._update_status_ui("ACTIVE", "#2ecc71"))
+
+    def _trigger_stop(self):
+        if not self.is_running: return
+        self.stop_event.set()
+        self.is_running = False
+        self.logger.info("[ENGINE] Spammer stopped.")
+        self.root.after(0, lambda: self._update_status_ui("IDLE", "gray"))
+
+    def _spam_worker(self):
+        try:
+            # Countdown
+            for i in range(5, 0, -1):
+                if self.stop_event.is_set(): return
+                self.logger.info(f"[ENGINE] Starting in {i}s... Switch Window!")
+                time.sleep(1)
+
+            if self.stop_event.is_set(): return
+            self.logger.info("[ENGINE] Status: RUNNING")
+            
+            while not self.stop_event.is_set():
+                messages = [v.get().strip() for v in self.message_vars]
+                
+                # Find next
+                attempts = 0
+                while attempts < 5: # prevent infinite loop
+                    if self.current_msg_index >= 4: self.current_msg_index = 0
+                    msg = messages[self.current_msg_index]
+                    if msg: break
+                    self.current_msg_index += 1
+                    attempts += 1
+                
+                if not msg: # Should not happen due to trigger validation
+                    break
+
+                # Automate
+                pyautogui.press('t')
+                time.sleep(0.1)
+                pyperclip.copy(msg)
+                pyautogui.hotkey('ctrl', 'v')
+                time.sleep(0.1)
+                pyautogui.press('enter')
+                
+                self.messages_sent += 1
+                self.logger.info(f"[SENT] Slot {self.current_msg_index + 1}: {msg[:15]}...")
+                self.root.after(0, self._refresh_counter)
+                
+                # Prep next
+                self.current_msg_index += 1
+                
+                # Wait
+                base = self.interval_var.get()
+                wait_time = base + (random.uniform(-base*0.3, base*0.3) if self.variance_var.get() else 0)
+                wait_time = max(0.1, wait_time)
+                
+                start_cycle = time.time()
+                while time.time() - start_cycle < wait_time:
+                    if self.stop_event.is_set(): return
+                    time.sleep(0.05)
+
+        except Exception as e:
+            self.logger.error(f"[FATAL] {e}")
+        finally:
+            self.is_running = False
+            self.root.after(0, lambda: self._update_status_ui("IDLE", "gray"))
 
     def _show_window(self, icon=None, item=None):
         self.root.after(0, self.root.deiconify)
-        self.root.after(0, self.root.lift)
+        self.root.after(0, self.root.attributes, "-topmost", True)
+        self.root.after(100, self.root.attributes, "-topmost", False)
 
     def _hide_window(self, icon=None, item=None):
         self.root.after(0, self.root.withdraw)
 
     def _on_window_close(self):
-        self.logger.info("Application minimized to tray.")
         self._hide_window()
 
     def _quit_app(self, icon=None, item=None):
-        if hasattr(self, 'hotkey_listener'):
-            self.hotkey_listener.stop()
-        if hasattr(self, 'tray_icon'):
-            self.tray_icon.stop()
+        if hasattr(self, 'hotkey_listener'): self.hotkey_listener.stop()
+        if hasattr(self, 'tray_icon'): self.tray_icon.stop()
         self.root.after(0, self.root.destroy)
         sys.exit(0)
+
+    def _reset_counter(self):
+        self.messages_sent = 0
+        self._refresh_counter()
+        self.logger.info("[UI] Counter reset.")
+
+    def _refresh_counter(self):
+        self.counter_lbl.config(text=f"MESSAGES SENT: {self.messages_sent}")
+
+    def _update_status_ui(self, text, color):
+        self.status_lbl.config(text=text)
+        self.status_dot.config(foreground=color)
 
     def _poll_log_queue(self):
         try:
@@ -272,12 +283,8 @@ class MinecraftSpammerApp:
                 self.log_text.insert(tk.END, msg + "\n")
                 self.log_text.see(tk.END)
                 self.log_text.configure(state='disabled')
-        except queue.Empty:
-            pass
+        except queue.Empty: pass
         self.root.after(100, self._poll_log_queue)
-        
-    def _update_counter_lbl(self):
-        self.counter_lbl.config(text=f"Messages Sent: {self.messages_sent}")
 
 
 if __name__ == "__main__":
