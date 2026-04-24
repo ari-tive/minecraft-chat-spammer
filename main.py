@@ -18,6 +18,7 @@ INPUT_KEYBOARD = 1
 KEYEVENTF_KEYUP = 0x0002
 KEYEVENTF_UNICODE = 0x0004
 VK_RETURN = 0x0D
+VK_ESCAPE = 0x1B
 VK_CONTROL = 0x11
 
 class KEYBDINPUT(ctypes.Structure):
@@ -56,7 +57,7 @@ def send_string(text):
     """Type an entire string using Unicode SendInput (no clipboard needed)."""
     for char in text:
         _send_unicode_char(char)
-        time.sleep(0.01)  # 10ms between characters for reliability
+        time.sleep(0.02)  # 20ms between characters — safe for Minecraft Java
 
 def press_key(vk):
     """Press and release a virtual key."""
@@ -250,67 +251,69 @@ class MinecraftSpammerApp:
         try:
             # Countdown
             for i in range(5, 0, -1):
-                if self.stop_event.is_set(): return
+                if self.stop_event.is_set():
+                    return
                 self.logger.info(f"[ENGINE] Starting in {i}s... Switch Window!")
                 time.sleep(1)
 
-            if self.stop_event.is_set(): return
+            if self.stop_event.is_set():
+                return
             self.logger.info("[ENGINE] Status: RUNNING")
-            
+
             while not self.stop_event.is_set():
+                # Snapshot messages once per full cycle
                 messages = [v.get().strip() for v in self.message_vars]
-                
-                # Find next
-                attempts = 0
-                while attempts < 5: # prevent infinite loop
-                    if self.current_msg_index >= 4: self.current_msg_index = 0
-                    msg = messages[self.current_msg_index]
-                    if msg: break
-                    self.current_msg_index += 1
-                    attempts += 1
-                
-                if not msg: # Should not happen due to trigger validation
+                filled = [(i, m) for i, m in enumerate(messages) if m]
+
+                if not filled:
+                    self.logger.warning("[ENGINE] No messages. Stopping.")
                     break
 
-                # Append unique 4-digit ID if enabled
-                send_msg = msg
-                if self.unique_id_var.get():
-                    send_msg = f"{msg} {random.randint(1000, 9999)}"
+                for slot_index, msg in filled:
+                    if self.stop_event.is_set():
+                        break
 
-                # --- Direct Windows API automation (no clipboard) ---
-                # Step 1: Open Minecraft chat with 'T' key
-                press_t_key()
-                time.sleep(0.4)
+                    # Build the final message
+                    send_msg = msg
+                    if self.unique_id_var.get():
+                        send_msg = f"{msg} {random.randint(1000, 9999)}"
 
-                # Step 2: Type message directly using Unicode SendInput
-                send_string(send_msg)
-                time.sleep(0.1)
+                    # Step 1: Escape to close any stale chat/menu
+                    press_key(VK_ESCAPE)
+                    time.sleep(0.3)
 
-                # Step 3: Press Enter to send
-                press_key(VK_RETURN)
-                time.sleep(0.15)
-                
-                self.messages_sent += 1
-                self.logger.info(f"[SENT] Slot {self.current_msg_index + 1}: {send_msg}")
-                self.root.after(0, self._refresh_counter)
-                
-                # Prep next
-                self.current_msg_index += 1
-                
-                # Wait
-                try:
-                    base = float(self.interval_var.get())
-                except (ValueError, tk.TclError):
-                    self.logger.warning("[ENGINE] Invalid interval value detected. Falling back to 1.0s.")
-                    base = 1.0
-                
-                wait_time = base + (random.uniform(-base*0.3, base*0.3) if self.variance_var.get() else 0)
-                wait_time = max(0.1, wait_time)
-                
-                start_cycle = time.time()
-                while time.time() - start_cycle < wait_time:
-                    if self.stop_event.is_set(): return
-                    time.sleep(0.05)
+                    # Step 2: T to open fresh chat
+                    press_t_key()
+                    time.sleep(0.5)
+
+                    # Step 3: Type message character by character
+                    send_string(send_msg)
+                    time.sleep(0.2)
+
+                    # Step 4: Enter to send
+                    press_key(VK_RETURN)
+                    time.sleep(0.3)
+
+                    self.messages_sent += 1
+                    self.logger.info(f"[SENT] Slot {slot_index + 1}: {send_msg}")
+                    self.root.after(0, self._refresh_counter)
+
+                    # Wait for interval before next message
+                    if self.stop_event.is_set():
+                        break
+                    try:
+                        base = float(self.interval_var.get())
+                    except (ValueError, tk.TclError):
+                        base = 1.0
+
+                    wait_time = base + (random.uniform(-base * 0.3, base * 0.3) if self.variance_var.get() else 0)
+                    wait_time = max(0.5, wait_time)
+
+                    elapsed = time.time()
+                    while time.time() - elapsed < wait_time:
+                        if self.stop_event.is_set():
+                            break
+                        time.sleep(0.05)
 
         except Exception as e:
             self.logger.error(f"[FATAL] {e}")
